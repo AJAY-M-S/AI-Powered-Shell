@@ -2,7 +2,7 @@ import subprocess
 import json
 import re
 import os
-from faster_whisper import WhisperModel
+import requests
 import sounddevice as sd
 import wavio
 import google.generativeai as genai
@@ -10,9 +10,14 @@ import pyttsx3
 import shlex
 import numpy as np
 from collections import deque
+from dotenv import load_dotenv
+from sarvamai import SarvamAI
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # ---------------- Gemini API Setup ----------------
-genai.configure(api_key="YOUR-API-KEY")
+genai.configure(api_key="AIzaSyBUWKcixG2e1e0w4_6h127tELGEtZx2ePw")
 model_gemini = genai.GenerativeModel("models/gemini-2.5-flash")
 
 # ---------------- Text-to-Speech Setup ----------------
@@ -21,8 +26,25 @@ def speak(text):
     engine.say(text)
     engine.runAndWait()
 
-# ---------------- Whisper Setup ----------------
-whisper_model = WhisperModel("small", device="cpu", compute_type="float32")
+# ---------------- Transcription Provider Setup ----------------
+# Make Whisper optional and add Sarvam AI support via env vars.
+try:
+    from faster_whisper import WhisperModel as _FWWhisperModel
+except ImportError:
+    _FWWhisperModel = None
+
+whisper_model = None
+
+# Provider selection: 'sarvam' (default) or 'whisper'
+TRANSCRIBE_PROVIDER = os.environ.get("TRANSCRIBE_PROVIDER", "sarvam").strip().lower()
+
+# Sarvam AI configuration (set these env vars before running)
+SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "").strip()
+SARVAM_STT_MODEL = os.environ.get("SARVAM_STT_MODEL", "saarika:v2.5").strip()
+SARVAM_LANGUAGE_CODE = os.environ.get("SARVAM_LANGUAGE_CODE", "ta-IN").strip()
+
+# Lazy init Sarvam client
+_sarvam_client = None
 
 # ---------------- WSL current working directory state ----------------
 wsl_current_dir = None
@@ -83,8 +105,53 @@ def record_voice(fs=16000, filename="input.wav", silence_ms=800, frame_ms=50, th
 
 # ---------------- Transcription ----------------
 def transcribe_audio(filename="input.wav"):
+    # Select provider based on env var
+    provider = TRANSCRIBE_PROVIDER
+    if provider == "sarvam":
+        return sarvam_transcribe(filename)
+    elif provider == "whisper":
+        return whisper_transcribe(filename)
+    else:
+        print(f"⚠️ Unknown TRANSCRIBE_PROVIDER='{provider}', falling back to Sarvam")
+        return sarvam_transcribe(filename)
+
+def whisper_transcribe(filename="input.wav"):
+    global whisper_model
+    if _FWWhisperModel is None:
+        raise RuntimeError("faster-whisper is not installed. Set TRANSCRIBE_PROVIDER=sarvam or install faster-whisper.")
+    if whisper_model is None:
+        whisper_model = _FWWhisperModel("small", device="cpu", compute_type="float32")
     segments, info = whisper_model.transcribe(filename)
     text = " ".join([s.text for s in segments]).strip()
+    print("🗣️ You said:", text)
+    return text
+
+def sarvam_transcribe(filename="input.wav"):
+    global _sarvam_client
+    if not SARVAM_API_KEY:
+        raise RuntimeError("Set SARVAM_API_KEY in .env with your Sarvam API key.")
+    if _sarvam_client is None:
+        _sarvam_client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
+    with open(filename, "rb") as f:
+        response = _sarvam_client.speech_to_text.transcribe(
+            file=f,
+            model=SARVAM_STT_MODEL,
+            language_code=SARVAM_LANGUAGE_CODE,
+        )
+    # Response may be dict-like or object; handle common cases
+    text = None
+    try:
+        # If SDK returns a dict
+        if isinstance(response, dict):
+            text = response.get("text") or response.get("transcript") or response.get("transcription")
+        else:
+            # Try attributes commonly used
+            text = getattr(response, "text", None) or getattr(response, "transcript", None) or getattr(response, "transcription", None)
+    except Exception:
+        pass
+    if not text:
+        text = str(response)
+    text = str(text).strip()
     print("🗣️ You said:", text)
     return text
 

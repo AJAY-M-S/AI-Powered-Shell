@@ -1,0 +1,12 @@
+numpy
+sounddevice
+wavio
+pyttsx3
+google-generativeai
+faster-whisper
+openai-whisper
+torch
+requests
+python-dotenv
+sarvamai
+python-docx
