@@ -12,7 +12,7 @@ import numpy as np
 from collections import deque
 
 # ---------------- Gemini API Setup ----------------
-genai.configure(api_key="AIzaSyAbBHogR-gHoZStuxYyTqe8MljTWbV7Li8")
+genai.configure(api_key="YOUR-API-KEY")
 model_gemini = genai.GenerativeModel("models/gemini-2.5-flash")
 
 # ---------------- Text-to-Speech Setup ----------------
