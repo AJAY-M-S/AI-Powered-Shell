@@ -1,0 +1,43 @@
+# ---------------- Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+env/
+venv/
+pip-wheel-metadata/
+*.egg
+*.egg-info/
+dist/
+build/
+
+# ---------------- OS/Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# ---------------- Environment/Secrets
+.env
+.env.*
+.envrc
+
+# ---------------- Project artifacts
+input.wav
+*.wav
+*.mp3
+*.flac
+*.bin
+Project_Report.docx
+*.log
+
+# ---------------- Node (if ever used)
+node_modules/
