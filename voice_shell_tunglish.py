@@ -2,6 +2,7 @@ import subprocess
 import json
 import re
 import os
+import sys
 import requests
 import sounddevice as sd
 import wavio
@@ -12,6 +13,7 @@ import numpy as np
 from collections import deque
 from dotenv import load_dotenv
 from sarvamai import SarvamAI
+import socket
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -132,12 +134,17 @@ def sarvam_transcribe(filename="input.wav"):
         raise RuntimeError("Set SARVAM_API_KEY in .env with your Sarvam API key.")
     if _sarvam_client is None:
         _sarvam_client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
-    with open(filename, "rb") as f:
-        response = _sarvam_client.speech_to_text.transcribe(
-            file=f,
-            model=SARVAM_STT_MODEL,
-            language_code=SARVAM_LANGUAGE_CODE,
-        )
+    try:
+        with open(filename, "rb") as f:
+            response = _sarvam_client.speech_to_text.transcribe(
+                file=f,
+                model=SARVAM_STT_MODEL,
+                language_code=SARVAM_LANGUAGE_CODE,
+            )
+    except socket.gaierror as e:
+        raise RuntimeError("Network/DNS error while reaching Sarvam API. Check your internet or DNS settings.") from e
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Network error while reaching Sarvam API: {e}") from e
     # Response may be dict-like or object; handle common cases
     text = None
     try:
@@ -163,8 +170,13 @@ that can be used for generating a Linux shell command. Do not change the meaning
 
 Instruction: "{text}"
 """
-    response = model_gemini.generate_content(prompt)
-    return response.text.strip()
+    try:
+        response = model_gemini.generate_content(prompt)
+        return response.text.strip()
+    except socket.gaierror as e:
+        raise RuntimeError("Network/DNS error while reaching Gemini. Check your internet or DNS settings.") from e
+    except Exception as e:
+        raise
 
 # ---------------- Gemini: Command + Exit Detection ----------------
 def get_command_and_exit(text):
@@ -182,11 +194,19 @@ You are a Linux shell assistant.
 - Generate exactly one line that can run in WSL.
 - Do not add explanations or extra text.
 Instruction: "{text}"
-Determine if the user wants to exit the shell. Answer Yes/No.
+Determine if the user wants to exit the shell and even if the user thanks you, consider it a No. Answer Yes/No.
 Respond in strict JSON:
-{{\n  "command": "shell_command_here",\n  "exit": "Yes" or "No"\n}}
+\n  "command": "shell_command_here",\n  "exit": "Yes" or "No"\n
 """
-    response = model_gemini.generate_content(prompt)
+    try:
+        try:
+            response = model_gemini.generate_content(prompt)
+        except socket.gaierror as e:
+            raise RuntimeError("Network/DNS error while reaching Gemini. Check your internet or DNS settings.") from e
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Network error while reaching Gemini: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"Error generating command: {e}") from e
     
     # Extract JSON safely in case Gemini adds extra text
     try:
@@ -324,4 +344,26 @@ def main_loop():
 
 # ---------------- Run ----------------
 if __name__ == "__main__":
-    main_loop()
+    try:
+        tui_script = os.path.join(os.path.dirname(__file__), "terminal_gui.py")
+        if os.path.exists(tui_script):
+            # Launch the Rich TUI in a new console window on Windows so it pops up separately
+            cmd = [sys.executable, tui_script]
+            creation_flags = 0
+            if os.name == 'nt':
+                try:
+                    creation_flags = subprocess.CREATE_NEW_CONSOLE
+                except AttributeError:
+                    creation_flags = 0
+            try:
+                subprocess.Popen(cmd, creationflags=creation_flags)
+                # Exit the parent so only the popup TUI remains
+                raise SystemExit(0)
+            except Exception:
+                # If popup launch fails, run in the same console
+                subprocess.run(cmd, check=False)
+        else:
+            main_loop()
+    except Exception:
+        # Fallback to original CLI loop
+        main_loop()
